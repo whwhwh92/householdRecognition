@@ -2,7 +2,8 @@
   *plan：
   2016/9/7
    1.reading all img 
-
+  2016/9/8
+   1.search img in all img 
   *problem：
     1.img compare by many img;
 	2.modify programme format for standard c++
@@ -25,6 +26,7 @@
 #include <string.h>
 #include <fstream>
 #include<vector>
+#include <io.h>
 using namespace std;
 using namespace cv;
 //#pragma comment(lib,"opencv_highgui231d.lib")
@@ -35,6 +37,42 @@ const int nThresholdEdge = 25;
 const int ratio = 3;
 const int kernel_size = 3;
 const float minError = 2.5;
+bool read_all_img_name(vector<string> &imgPathName,string &fileNameJpg,string & fileName)
+{
+   _finddata_t fileInfo;
+    int num = 0;
+	long handle = _findfirst(fileNameJpg.c_str(), &fileInfo);
+	if (handle == -1L)
+    {
+        cout << "failed to transfer files" << endl;
+        return false;
+    }
+
+    do 
+    {
+        num ++;
+        //cout << fileInfo.name <<endl;
+		string imgname = fileInfo.name;
+		string img_path_name = fileName+"\\"+imgname ;
+		imgPathName.push_back(img_path_name);
+    } while (0 == _findnext(handle, &fileInfo) );
+    cout << " .exe files' number:  " << num << endl;
+	for(int i =0;i<imgPathName.size();i++)
+	{
+	   cout<<imgPathName[i]<<endl;
+	}
+	return true;
+}
+void img_preprocess(Mat &queryImg,vector<Mat> &imgSrc)
+{
+   resize(queryImg,queryImg,Size(re_size,re_size),0,0,CV_INTER_LINEAR);
+   cvtColor(queryImg,queryImg,COLOR_BGR2GRAY);
+   for(int num = 0;num < imgSrc.size();num++)
+   {
+     resize(imgSrc[num],imgSrc[num],Size(re_size,re_size),0,0,CV_INTER_LINEAR);
+    cvtColor(imgSrc[num],imgSrc[num],COLOR_BGR2GRAY);
+   }
+}
 /** 
      * @brief This function converts matches to points using nearest neighbor distance 
      * ratio matching strategy 
@@ -70,7 +108,7 @@ void matches2points_nndr(const vector<KeyPoint>& train,
      * @param error The minimum pixelic error to accept an inlier 
      * @param use_fund Set to true if you want to compute a fundamental matrix 
      */  
-void compute_inliers_ransac(const std::vector<cv::Point2f>& matches,  
+int compute_inliers_ransac(const std::vector<cv::Point2f>& matches,  
                                 std::vector<cv::Point2f>& inliers,  
                                 float error, bool use_fund) {  
       
@@ -88,7 +126,15 @@ void compute_inliers_ransac(const std::vector<cv::Point2f>& matches,
         H = findFundamentalMat(points1,points2,CV_FM_RANSAC,error,0.99,status);  
       }  
       else {  
-        H = findHomography(points1,points2,CV_RANSAC,error,status);  
+		  if(matches.size()>6)  //避免matches.size()/2>3的情况 这样会到时程序崩溃
+		  {
+		     H = findHomography(points1,points2,CV_RANSAC,error,status); 
+		  }
+		  else
+		  {
+		     cout<<"matches size less than 3"<<endl;
+			 return -1;
+		  }
       }  
       
       for (int i = 0; i < npoints; i++) {  
@@ -98,6 +144,7 @@ void compute_inliers_ransac(const std::vector<cv::Point2f>& matches,
         }  
       }  
 	  cout<<"number of the inliers:"<<inliers.size()/2<<endl;
+	  return 0;
     }  
 /**
   * @brief This function checks img edge by canny algorithm
@@ -119,40 +166,97 @@ Mat cannyEdge(Mat roomImgCannySrc)
    *@param vector roomImgKeyPoint is special point of source img
    *@return mat outRoomImgKeypoint which describle key point
 */
-Mat specialPointCheck(Mat &roomImgSrc,vector<KeyPoint> &roomImgKeyPoint)
+vector<KeyPoint>  sift_special_point(Mat &siftImgSrc)
 {
-	SiftFeatureDetector  rommSiftDtc;
-    rommSiftDtc.detect(roomImgSrc,roomImgKeyPoint);
-	Mat *p = &roomImgSrc;
-	Mat outRoomImgKeypoint;
-	drawKeypoints(roomImgSrc,roomImgKeyPoint,outRoomImgKeypoint);
-	return outRoomImgKeypoint;
+	vector<KeyPoint> roomImgKeyPoint;
+    SiftFeatureDetector  SiftDtc;
+    SiftDtc.detect(siftImgSrc,roomImgKeyPoint);
+	return roomImgKeyPoint;
+}
+/*
+ *@brief this function extractor descriptor on keypoint of img
+ *@param mat siftImgSrc is source img which need extractor descriptor
+ *@param keypoint roomImgKeyPoint from special point of img
+ *return descriptor of img
+*/
+Mat sift_descriptor_extractor(Mat &siftImgSrc,vector<KeyPoint> &roomImgKeyPoint)
+{
+	Mat descriptor;
+	SiftDescriptorExtractor siftExtractor;
+	
+    siftExtractor.compute(siftImgSrc,roomImgKeyPoint,descriptor);
+	return descriptor;
+	
+}
+/*
+ *@brief this function match special  Descriptor of img
+ *@param vector<vector<DMatch>> Matches contian match index and distance of two key point
+ *vector<vector<vector<DMatch>>> allMatches contian matches of all img in file
+ *@param queryDescriptor is Descriptor of query img (load img)
+ *@param srcDescriptor is Descriptor of query img in file
+*/
+
+void special_descriptor_match(vector<vector<vector<DMatch>>> &allMatches,Mat &queryDescriptor,vector<Mat> &srcDescriptor)
+{
+    Mat img_matches;
+	BruteForceMatcher<L2<float>> matcher;
+	for(int num = 0;num < srcDescriptor.size();num++)
+	{
+	 vector<vector<DMatch>> matches;
+	  matcher.knnMatch(queryDescriptor,srcDescriptor[num], matches,2);//寻找每个查询特征关键点对应的``k``个最佳匹配.
+	  allMatches.push_back(matches);
+	}
+}
+/*
+  *@brief this function find max num of two img,in addition ,getted serial of max num
+  * finded file path of match img by serial
+  *@param vector<vector<Point2f>> match contain all match point of file and query
+  *@param serialMaxData serial is serial of the biggest match num 
+*/
+void find_max_match_num(vector<vector<Point2f>> &match ,int &serialMaxData)
+{
+	int maxData = match[0].size();
+	
+	for(int num = 0;num <match.size();num++)
+	{
+		if(match[num].size() > maxData )
+		{
+			maxData = match[num].size();
+			serialMaxData = num ;
+		}
+	}
 }
 int main()
 {
-	//static string imgPath = "G:\\graphic process\\roomGraphtic-v1\\roomGraphtic-v1\\G1.jpg";//读取源图
-	static string imgPathG1 = "G9.jpg";//读取源图
-	static string imgPathG2 = "G10.jpg";//读取源图
-	Mat similarRoomImgSrc = imread(imgPathG1,CV_LOAD_IMAGE_COLOR);
-	Mat similarRoomImgDst = imread(imgPathG2,CV_LOAD_IMAGE_COLOR);
-	if(similarRoomImgSrc.empty()||similarRoomImgDst.empty())
+	static string imgPathJpg = "G:\\graphicprocess\\roomGraphtic-v1\\photo\\*.jpg";//读取源图
+	static string imgPath = "G:\\graphicprocess\\roomGraphtic-v1\\photo";
+	//static string queryImgPath;
+	vector<Mat> roomImgSrc ;
+	vector<string> imgPathName;
+	read_all_img_name(imgPathName,imgPathJpg,imgPath);
+	for(int num = 0;num<imgPathName.size();num++)
 	{
-	  cout<<"cannot load roomImgSrc"<<endl;
+	   Mat imgSrc = imread(imgPathName[num],CV_LOAD_IMAGE_COLOR);
+	   roomImgSrc.push_back(imgSrc);
+	   if(imgSrc.empty())
+	   {
+	      cout<<"failed src load :"<<imgPathName[num]<<endl;
+		  return -1;
+	   }
+	}
+	Mat queryImg = imread("queryImg.jpg",CV_LOAD_IMAGE_COLOR);
+	if(queryImg.empty())
+	{
+	  cout<<"failed query load"<<endl;
 	  return -1;
 	}
-	Mat roomImgResizeDstG1,roomImgResizeDstG2;
-	resize(similarRoomImgSrc,roomImgResizeDstG1,Size(re_size,re_size),0,0,CV_INTER_LINEAR);
-	resize(similarRoomImgDst,roomImgResizeDstG2,Size(re_size,re_size),0,0,CV_INTER_LINEAR);
+	img_preprocess(queryImg,roomImgSrc);
+	imshow("queryImg",queryImg);
 	/*pyrDown(similarRoomImgSrc,roomImgDstG1,roomSzG1,BORDER_DEFAULT);//执行一次就减少原来的1/2
 	pyrDown(similarRoomImgSrc,roomImgDstG1,roomSzG1,BORDER_DEFAULT);
 	cvtColor(roomImgDstG1,roomImgDstG1,COLOR_BGR2GRAY);//转灰度图
 	pyrDown(similarRoomImgDst,roomImgDstG2,roomSzG2,BORDER_DEFAULT);//执行一次就减少原来的1/2
 	pyrDown(similarRoomImgDst,roomImgDstG2,roomSzG2,BORDER_DEFAULT);*/
-	Mat roomImgColorDstG1,roomImgColorDstG2;
-	cvtColor(roomImgResizeDstG1,roomImgColorDstG1,COLOR_BGR2GRAY);//转灰度图
-	cvtColor(roomImgResizeDstG2,roomImgColorDstG2,COLOR_BGR2GRAY);//转灰度图
-	//threshold(a1,a1,200,255,THRESH_BINARY);//二值化
-	
 	//图片G1 canny
 	/*Mat roomImgCannnySrcG1 = roomImgColorDstG1.clone();
 	Mat roomImgCannnySrcG2 = roomImgColorDstG2.clone();
@@ -161,36 +265,49 @@ int main()
 	Mat roomImgCannnyDstG1,roomImgCannnyDstG2;
 	Canny(roomImgCannnySrcG1, roomImgCannnyDstG1, nThresholdEdge, nThresholdEdge * ratio, kernel_size); 
 	imshow("roomImgCannnyDstG1",roomImgCannnyDstG1);*/
-	//图片G1特征点检测
+	//图片queryImg特征点检测
 	//imshow("roomImgDstG1",roomImgColorDstG1);
-	vector<KeyPoint> roomImgKeyPointG1;
-	Mat drawImgKeyPointG1  = specialPointCheck(roomImgColorDstG1,roomImgKeyPointG1);
-	imshow("drawImgKeyPointG1",drawImgKeyPointG1);
-	cout<<"number of G1 special point:"<<roomImgKeyPointG1.size()<<endl;
-	//图片G2特征点检测
-	vector<KeyPoint> roomImgKeyPointG2;
-	Mat drawImgKeyPointG2  = specialPointCheck(roomImgColorDstG2,roomImgKeyPointG2);
-	imshow("drawImgKeyPointG2",drawImgKeyPointG2);
-	cout<<"number of G2 special point:"<<roomImgKeyPointG2.size()<<endl;
-	//提取特征向量
-	SiftDescriptorExtractor siftExtractor;
-	Mat descriptorG1,descriptorG2;
-    siftExtractor.compute(roomImgColorDstG1,roomImgKeyPointG1,descriptorG1);
-	siftExtractor.compute(roomImgColorDstG2,roomImgKeyPointG2,descriptorG2);
-	//特征点匹配
-    vector<vector<DMatch>> matches;
+	vector<KeyPoint> queryImgKeyPoint;
+	Mat queryDescriptor;
+	queryImgKeyPoint = sift_special_point(queryImg);
+	queryDescriptor = sift_descriptor_extractor(queryImg,queryImgKeyPoint);
+	//图片src特征点检测
+	vector<KeyPoint> roomImgKeyPoint;
+	vector<vector<KeyPoint>> roomImgAllKeyPoint;
+	vector<Mat> srcDescriptor;
+
+	for(int num = 0;num<roomImgSrc.size();num++)
+	{
+	  vector<KeyPoint> roomImgAllKeyTempPoint = sift_special_point(roomImgSrc[num]);
+	  roomImgAllKeyPoint.push_back(roomImgAllKeyTempPoint);
+	  Mat srcDescriptorTemp = sift_descriptor_extractor(roomImgSrc[num],roomImgAllKeyTempPoint);
+	  srcDescriptor.push_back(srcDescriptorTemp);
+	}
+	
+	//特征向量匹配
+    vector<vector<vector<DMatch>>> allMatches;
     Mat img_matches;
-	imshow("desc",descriptorG1);
 	BruteForceMatcher<L2<float>> matcher;
-    matcher.knnMatch(descriptorG1,descriptorG2,matches,2);//寻找每个查询特征关键点对应的``k``个最佳匹配.
-	cout<<"the count:"<<matches.size()<<endl;
-    drawMatches(roomImgColorDstG1,roomImgKeyPointG1,roomImgColorDstG2,roomImgKeyPointG2,matches,img_matches);//画出匹配图
-    imshow("matches",img_matches);
-	//相似判断
-	vector<Point2f> matchesSift, inlierSift;  
+    special_descriptor_match(allMatches,queryDescriptor,srcDescriptor);
+   
+	//取出匹配点
+	vector<vector<Point2f>> matchesSift, inlierSift;  
 	float matchRatio = 0.8;
-	matches2points_nndr(roomImgKeyPointG1,roomImgKeyPointG2,matches,matchesSift,matchRatio);
-	compute_inliers_ransac(matchesSift,inlierSift,minError,false);
+	for(int num = 0;num < roomImgSrc.size();num++)
+	{
+	  vector<Point2f> matchesSiftTemp,inlierSiftTemp;
+	  matches2points_nndr(queryImgKeyPoint,roomImgAllKeyPoint[num],allMatches[num],matchesSiftTemp,matchRatio);
+	  matchesSift.push_back(matchesSiftTemp);
+	  compute_inliers_ransac(matchesSift[num],inlierSiftTemp,minError,false);
+	  inlierSift.push_back(inlierSiftTemp);
+	}
+
+	//找到匹配的图片
+	int serialMaxVectorSize = 0;
+	find_max_match_num(inlierSift,serialMaxVectorSize);
+	string matchStringPath = imgPathName[serialMaxVectorSize];
+	Mat matchImg  = imread(matchStringPath,CV_LOAD_IMAGE_COLOR);
+	imshow("matchImg",matchImg);
 	waitKey();
 	return 0;
 }
