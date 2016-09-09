@@ -4,6 +4,9 @@
    1.reading all img 
   2016/9/8
    1.search img in all img 
+  2016/9/9
+  1.finding more similar room img
+  2.modify img for img
   *problem：
     1.img compare by many img;
 	2.modify programme format for standard c++
@@ -37,6 +40,12 @@ const int nThresholdEdge = 25;
 const int ratio = 3;
 const int kernel_size = 3;
 const float minError = 2.5;
+/*
+ *@brief this function read img file name 
+ *@param imgPathName is complete img (path+file)name
+ *@param fileNameJpg is path name,for example:G:\\graphicprocess\\roomGraphtic-v1\\photo\\*.jpg
+ *@param fileName is path name ,for example:G:\\graphicprocess\\roomGraphtic-v1\\photo\\
+*/
 bool read_all_img_name(vector<string> &imgPathName,string &fileNameJpg,string & fileName)
 {
    _finddata_t fileInfo;
@@ -63,6 +72,11 @@ bool read_all_img_name(vector<string> &imgPathName,string &fileNameJpg,string & 
 	}
 	return true;
 }
+/*
+ *@brief this fuction is preprocess for img,it contains resize and cvtcolor
+ *@param mat queryImg is the img which need find
+ *@param vector<mat> imgSrc is the whole img in file
+*/
 void img_preprocess(Mat &queryImg,vector<Mat> &imgSrc)
 {
    resize(queryImg,queryImg,Size(re_size,re_size),0,0,CV_INTER_LINEAR);
@@ -210,7 +224,7 @@ void special_descriptor_match(vector<vector<vector<DMatch>>> &allMatches,Mat &qu
 /*
   *@brief this function find max num of two img,in addition ,getted serial of max num
   * finded file path of match img by serial
-  *@param vector<vector<Point2f>> match contain all match point of file and query
+  *@param vector<vector<Point2f>> match contain all match point of file 
   *@param serialMaxData serial is serial of the biggest match num 
 */
 void find_max_match_num(vector<vector<Point2f>> &match ,int &serialMaxData)
@@ -225,6 +239,8 @@ void find_max_match_num(vector<vector<Point2f>> &match ,int &serialMaxData)
 			serialMaxData = num ;
 		}
 	}
+	
+	cout<<"\n max match num:"<<maxData<<endl;
 }
 int main()
 {
@@ -245,13 +261,14 @@ int main()
 	   }
 	}
 	Mat queryImg = imread("queryImg.jpg",CV_LOAD_IMAGE_COLOR);
+	imshow("原图片",queryImg);
 	if(queryImg.empty())
 	{
 	  cout<<"failed query load"<<endl;
 	  return -1;
 	}
 	img_preprocess(queryImg,roomImgSrc);
-	imshow("queryImg",queryImg);
+	imshow("灰度图片",queryImg);
 	/*pyrDown(similarRoomImgSrc,roomImgDstG1,roomSzG1,BORDER_DEFAULT);//执行一次就减少原来的1/2
 	pyrDown(similarRoomImgSrc,roomImgDstG1,roomSzG1,BORDER_DEFAULT);
 	cvtColor(roomImgDstG1,roomImgDstG1,COLOR_BGR2GRAY);//转灰度图
@@ -306,8 +323,9 @@ int main()
 	int serialMaxVectorSize = 0;
 	find_max_match_num(inlierSift,serialMaxVectorSize);
 	string matchStringPath = imgPathName[serialMaxVectorSize];
+	cout<<"match String Path"<<matchStringPath<<endl;
 	Mat matchImg  = imread(matchStringPath,CV_LOAD_IMAGE_COLOR);
-	imshow("matchImg",matchImg);
+	imshow("匹配图片",matchImg);
 	waitKey();
 	return 0;
 }
